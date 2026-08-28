@@ -5,7 +5,6 @@ import html
 import requests
 from bs4 import BeautifulSoup
 
-# Wir nutzen den offiziellen RSS-Feed des Threads, um die Gameforge-Sperre zu umgehen
 URL = "https://gameforge.com"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
@@ -22,7 +21,6 @@ def main():
               "Juli", "August", "September", "Oktober", "November", "Dezember"]
     monat_name = monate[heute.month - 1]
     
-    # Flexible Regex-Muster für den Zeilenabgleich
     reg_heute = re.compile(f"^{tag}\\.\\s*{monat_name}", re.IGNORECASE)
     reg_irgendein_tag = re.compile(r"^\d+\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)", re.IGNORECASE)
 
@@ -39,28 +37,20 @@ def main():
         requests.post(WEBHOOK_URL, json={"content": f"❌ Fehler beim Laden des RSS-Feeds: {e}"})
         return
 
-    # 2. XML/RSS-Inhalt parsen
+    # 2. XML/RSS-Inhalt mit dem lxml-Parser verarbeiten
     soup = BeautifulSoup(response.content, "xml")
     
-    # Wir nehmen den Inhalt des neuesten Beitrags (WoltLab speichert Forentext im <content:encoded> Tag)
-    entries = soup.find_all("entry")
-    if not entries:
-        # Älteres RSS-Format Fallback (<item> statt <entry>)
-        entries = soup.find_all("item")
-
+    entries = soup.find_all("entry") or soup.find_all("item")
     text_zeilen = []
     
-    # Wir durchsuchen die neuesten Beiträge im Feed nach unserem Kalendertext
     for entry in entries:
         content_tag = entry.find("content:encoded") or entry.find("description")
         if content_tag:
-            # HTML-Inhalt aus dem Feed in reinen Text umwandeln
             html_inhalt = content_tag.text
             clean_text = BeautifulSoup(html_inhalt, "html.parser").get_text(separator="\n")
-            text_zeilen = clean_text.split("\n")
             
-            # Wenn der Text dieses Beitrags den aktuellen Monat enthält, haben wir den Kalenderpost!
             if monat_name.lower() in clean_text.lower():
+                text_zeilen = clean_text.split("\n")
                 print("Erfolgreich: Den aktuellen Kalender-Post im RSS-Feed gefunden.")
                 break
 
@@ -73,12 +63,10 @@ def main():
         if not clean_zeile:
             continue
         
-        # Startpunkt: Der heutige Tag matcht am Anfang der Zeile
         if reg_heute.match(clean_zeile):
             im_heutigen_abschnitt = True
             continue
             
-        # Endpunkt: Der darauffolgende Tag beginnt -> Schleife abbrechen
         if im_heutigen_abschnitt and reg_irgendein_tag.match(clean_zeile):
             im_heutigen_abschnitt = False
             break
@@ -97,7 +85,6 @@ def main():
         if "nur germania und teutonia" in event_text:
             return
         
-        # Text-Formatierung für Discord bauen
         title = ev_lines[0]
         details = ev_lines[1:]
         
