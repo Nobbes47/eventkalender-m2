@@ -4,14 +4,13 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-# Die echte Foren-URL zu Ihrem Eventkalender
-FORUM_URL = "https://gameforge.com"
+# Wir nutzen die offizielle JSON-API-Schnittstelle des Forums für diesen Post
+API_URL = "https://gameforge.com"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
-API_KEY = os.getenv("SCRAPERAPI_KEY")
 
 def main():
-    if not WEBHOOK_URL or not API_KEY:
-        print("FEHLER: DISCORD_WEBHOOK_URL oder SCRAPERAPI_KEY fehlt in den Secrets!")
+    if not WEBHOOK_URL:
+        print("FEHLER: DISCORD_WEBHOOK_URL fehlt in den GitHub Secrets!")
         return
 
     # 1. Heutiges Datum bestimmen (z.B. "28. August")
@@ -25,34 +24,27 @@ def main():
     reg_heute = re.compile(f"^{tag}\\.\\s*{monat_name}", re.IGNORECASE)
     reg_irgendein_tag = re.compile(r"^\d+\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)", re.IGNORECASE)
 
-    print(f"Rufe Forenseite über ScraperAPI ab. Suche nach: '{tag}. {monat_name}'")
+    print(f"Rufe Foren-API auf. Suche nach Events für den: {tag}. {monat_name}")
 
-    # 2. Anfrage über den ScraperAPI-Proxy tunneln
-    proxy_url = f"http://scraperapi.com?api_key={API_KEY}&url={FORUM_URL}"
-    
+    # 2. Daten direkt von der WoltLab-API abrufen
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     try:
-        response = requests.get(proxy_url, timeout=30)
+        response = requests.get(API_URL, headers=headers, timeout=15)
         response.raise_for_status()
+        data = response.json()
     except Exception as e:
-        print(f"Fehler beim Abruf über ScraperAPI: {e}")
+        print(f"Fehler beim Abruf der Foren-API: {e}")
         return
 
-    # 3. HTML verarbeiten
-    soup = BeautifulSoup(response.text, "html.parser")
-    
-    # Gezielte Suche nach dem von Ihnen angegebenen Post (ID: 3360374)
-    target_post = soup.find("article", id="post3360374") or soup.find("div", id="postRow-3360374")
+    # Die API liefert den Foren-Post direkt in einem sauberen Text-Feld aus
+    html_content = data.get("data", {}).get("message", "")
+    if not html_content:
+        print("Konnte keinen Textinhalt aus der Foren-API lesen.")
+        return
 
-    text_zeilen = []
-    if target_post:
-        content = target_post.find("div", class_="messageText")
-        if content:
-            text_zeilen = content.get_text(separator="\n").split("\n")
-            print("Erfolgreich: Den spezifischen Kalender-Post isoliert.")
-            
-    if not text_zeilen:
-        print("Fallback: Scanne gesamten Seitentext, da Post-ID im HTML fehlt.")
-        text_zeilen = soup.get_text(separator="\n").split("\n")
+    # 3. HTML in saubere Textzeilen zerlegen
+    soup = BeautifulSoup(html_content, "html.parser")
+    text_zeilen = soup.get_text(separator="\n").split("\n")
 
     # 4. Textblock des heutigen Tages extrahieren
     event_block = []
@@ -63,10 +55,12 @@ def main():
         if not clean_zeile:
             continue
         
+        # Startpunkt: Der heutige Tag matcht am Anfang der Zeile
         if reg_heute.match(clean_zeile):
             im_heutigen_abschnitt = True
             continue
             
+        # Endpunkt: Der nächste Kalendertag beginnt -> Suche beenden
         if im_heutigen_abschnitt and reg_irgendein_tag.match(clean_zeile):
             im_heutigen_abschnitt = False
             break
@@ -85,7 +79,7 @@ def main():
         if "nur germania und teutonia" in event_text:
             return
         
-        # Schöne Formatierung für Discord aufbauen
+        # Übersichtliche Formatierung für Discord aufbauen
         title = ev_lines[0]
         details = ev_lines[1:]
         
@@ -111,8 +105,8 @@ def main():
         nachricht = f"📅 **Metin2 Europe-Events ({tag}. {monat_name}):** Heute finden keine Europe-Events statt oder der Kalender wurde im Forum noch nicht eingetragen."
 
     try:
-        requests.post(WEBHOOK_URL, json={"content": nachricht}, timeout=10)
-        print("Discord-Webhook erfolgreich gesendet.")
+        res = requests.post(WEBHOOK_URL, json={"content": nachricht}, timeout=10)
+        print(f"Discord-Webhook gesendet. Status-Code: {res.status_code}")
     except Exception as e:
         print(f"Fehler beim Senden des Discord-Webhooks: {e}")
 
