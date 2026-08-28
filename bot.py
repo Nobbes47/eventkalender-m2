@@ -4,7 +4,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 
-# Verwende die direkte URL zum Thread
+# Wir rufen direkt den exakten Post über seine ID ab, um Foren-Weiterleitungen zu umgehen
 URL = "https://gameforge.com"
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
@@ -21,51 +21,46 @@ def main():
               "Juli", "August", "September", "Oktober", "November", "Dezember"]
     monat_name = monate[heute.month - 1]
     
-    # Suchmuster: Findet "28. August", "28.August", "28.  August" etc.
+    # Flexible Regex-Muster für den Zeilenabgleich
     reg_heute = re.compile(f"^{tag}\\.\\s*{monat_name}", re.IGNORECASE)
-    # Suchmuster für irgendeinen anderen Tag (um das Ende des Blocks zu erkennen)
     reg_irgendein_tag = re.compile(r"^\d+\.\s*(Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)", re.IGNORECASE)
 
-    print(f"Suche im Forum nach Block für Tag: '{tag}. {monat_name}'")
+    print(f"Starte Scraper. Suche nach Kalender-Einträgen für den {tag}. {monat_name}...")
 
-    # 2. Forenseite mit Browser-Einstellungen und Sprach-Cookie abrufen
+    # 2. Forenseite abrufen
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     }
-    # Der Cookie sorgt dafür, dass das WoltLab-Forum uns die deutsche Ansicht liefert
-    cookies = {
-        "wcf_languageID": "1" 
-    }
-
+    
     try:
-        response = requests.get(URL, headers=headers, cookies=cookies, timeout=15)
+        response = requests.get(URL, headers=headers, timeout=15)
         response.raise_for_status()
     except Exception as e:
         print(f"Fehler beim Abrufen der Webseite: {e}")
         return
 
-    # 3. HTML parsen und Zeilen isolieren
+    # 3. HTML verarbeiten
     soup = BeautifulSoup(response.text, "html.parser")
     
-    # Suche gezielt nach Forenbeiträgen (WoltLab nutzt <article class="message">)
-    posts = soup.find_all("article", class_="message")
-    
+    # Gezielte Suche nach dem von Ihnen angegebenen Post (ID: 3360374)
+    target_post = soup.find("article", id="post3360374")
+    if not target_post:
+        # Fallback auf den Beitragscontainer der WoltLab-Forensoftware
+        target_post = soup.find("div", id="postRow-3360374")
+
     text_zeilen = []
-    if posts:
-        # Wir nehmen den allerletzten Post auf der Seite (das ist meist der neueste Kalender)
-        letzter_post = posts[-1]
-        content = letzter_post.find("div", class_="messageText")
+    if target_post:
+        content = target_post.find("div", class_="messageText")
         if content:
             text_zeilen = content.get_text(separator="\n").split("\n")
-            print("Erfolgreich den Inhalt des letzten Forenbeitrags isoliert.")
+            print("Erfolgreich: Den spezifischen Kalender-Post (ID 3360374) isoliert.")
             
-    # Fallback, falls die Beitragsstruktur nicht greift
+    # Letzter Rettungsanker: Falls IDs geblockt werden, den gesamten Text durchsuchen
     if not text_zeilen:
-        print("Fallback: Nutze gesamten Seitentext.")
+        print("Hinweis: Post-ID wurde nicht gefunden. Scanne gesamten Seitentext...")
         text_zeilen = soup.get_text(separator="\n").split("\n")
 
-    # 4. Textblock des heutigen Tages ausschneiden
+    # 4. Textblock des heutigen Tages extrahieren
     event_block = []
     im_heutigen_abschnitt = False
 
@@ -74,22 +69,21 @@ def main():
         if not clean_zeile:
             continue
         
-        # Wenn die Zeile mit unserem heutigen Tag matcht
+        # Startpunkt: Der heutige Tag matcht am Anfang der Zeile
         if reg_heute.match(clean_zeile):
             im_heutigen_abschnitt = True
-            print(f"Startpunkt im Forum gefunden: {clean_zeile}")
+            print(f"-> Heute-Block im Forentext gefunden bei Zeile: '{clean_zeile}'")
             continue
             
-        # Wenn der Abschnitt aktiv ist und ein NEUER Tag beginnt -> Abbrechen
+        # Endpunkt: Der darauffolgende Tag beginnt -> Schleife abbrechen
         if im_heutigen_abschnitt and reg_irgendein_tag.match(clean_zeile):
-            print(f"Endpunkt erreicht (Nächster Tag beginnt): {clean_zeile}")
             im_heutigen_abschnitt = False
             break
             
         if im_heutigen_abschnitt:
             event_block.append(clean_zeile)
 
-    # 5. Events filtern (Ausschließen, was NUR für andere Server gilt)
+    # 5. Events filtern (Unerwünschte Fremdserver-Events wie Germania/Teutonia löschen)
     finale_events = []
     aktuelles_event = []
     
@@ -100,7 +94,7 @@ def main():
         if "nur germania und teutonia" in event_text:
             return
         
-        # Hübsche Formatierung bauen
+        # Schöne Text-Aufbereitung für Discord
         formatted = f"🔹 **{ev_lines[0]}**\n"
         for sub_line in ev_lines[1:]:
             formatted += f"   {sub_line}\n"
@@ -111,14 +105,14 @@ def main():
             verarbeite_event(aktuelles_event)
             aktuelles_event = [line]
         elif line.lower() == "nichts":
-            finale_events.append("🔹 Heute finden keine geplanten Events statt.")
+            finale_events.append("🔹 Heute finden laut Kalender keine geplanten Events statt.")
         else:
             if aktuelles_event:
                 aktuelles_event.append(line)
                 
     verarbeite_event(aktuelles_event)
 
-    # 6. Discord-Nachricht absenden
+    # 6. Nachricht via Webhook an Discord übermitteln
     if finale_events:
         nachricht = f"📅 **Metin2 Europe-Events für heute ({tag}. {monat_name}):**\n\n" + "\n".join(finale_events)
     else:
@@ -126,9 +120,9 @@ def main():
 
     try:
         res = requests.post(WEBHOOK_URL, json={"content": nachricht}, timeout=10)
-        print(f"An Discord übertragen. Status-Code: {res.status_code}")
+        print(f"Discord-Webhook gesendet. Status-Code: {res.status_code}")
     except Exception as e:
-        print(f"Fehler beim Senden an Discord: {e}")
+        print(f"Fehler beim Senden des Discord-Webhooks: {e}")
 
 if __name__ == "__main__":
     main()
