@@ -2,13 +2,15 @@ name: Tägliche Metin2 Events auslesen
 
 on:
   schedule:
-    # Führt das Skript täglich um 08:00 Uhr UTC (09:00 oder 10:00 Uhr deutscher Zeit) aus
     - cron: '0 8 * * *'
-  workflow_dispatch: # Erlaubt es, das Skript jederzeit manuell zu starten
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    # Hier erlauben wir dem Job explizit, auf Secrets zuzugreifen
+    environment: production 
+    
     steps:
     - name: Code auschecken
       uses: actions/checkout@v4
@@ -25,5 +27,6 @@ jobs:
 
     - name: Skript ausführen
       env:
+        # Hier wird das Secret aus GitHub in das Skript geladen
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       run: python bot.py
