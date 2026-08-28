@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 # Wir nutzen die offizielle JSON-API-Schnittstelle des Forums für diesen Post
 API_URL = "https://gameforge.com"
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL2")
 
 def main():
     if not WEBHOOK_URL:
